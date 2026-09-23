@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 import random
 import json
+import os
 from datetime import datetime, timedelta
 import asyncio
 
@@ -964,4 +965,15 @@ async def help_odyssey(ctx):
     await ctx.send(embed=embed)
 
 # Run bot
-bot.run('YOUR_BOT_TOKEN_HERE')
+if __name__ == '__main__':
+    try:
+        import dotenv
+        dotenv.load_dotenv()
+    except ImportError:
+        pass
+    token = os.environ.get('DISCORD_TOKEN')
+    if not token or token == 'YOUR_BOT_TOKEN_HERE':
+        print("DISCORD_TOKEN environment variable is not set. Refusing to start.")
+        raise SystemExit("DISCORD_TOKEN environment variable is not set.")
+    bot.run(token)
+
