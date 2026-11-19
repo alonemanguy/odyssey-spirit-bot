@@ -1,0 +1,32 @@
+name: Tidewarden
+
+on:
+  schedule:
+    # every 5 hours; the job below runs ~355 min so the next one queues and takes over
+    - cron: "0 */5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: tidewarden-runner
+  cancel-in-progress: false
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Run Tidewarden
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          PYTHONUNBUFFERED: "1"
+        run: python odyssey_bot.py
+        timeout-minutes: 350
