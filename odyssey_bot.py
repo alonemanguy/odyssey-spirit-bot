@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import random
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 
 # Initialize bot with intents
@@ -20,6 +20,40 @@ weather_status = "Calm"
 silent_guilds = set()
 SILENCE_DURATION = 20 * 60
 SILENCE_TRIGGERS = ["shut up", "shutup", "stfu", "shush", "shh", "shadup", "shaddup", "be quiet"]
+
+# ===== WHERE TIDEWARDEN IS ALLOWED TO TALK =====
+# The ocean/weather feed used to grab the first channel named "general" and post
+# there ~150 times a day, which buried every real conversation. It now lives in
+# #event-announcements. #general is for humans (and the bot is also denied Send
+# Messages there, so a still-running old deployment can't spam it either).
+FLAVOUR_CHANNEL_ID = 1345976335700328530   # #event-announcements
+OCEAN_EVENT_MINUTES = 120                  # was 10
+RANDOM_EVENT_MINUTES = 180                 # was 30
+
+# ===== BUMP REMINDERS =====
+# A bot account cannot run another bot's command - Discord does not deliver bot
+# messages to other bots' command handlers - and DISBOARD's guidelines forbid
+# auto-bumping outright. So Tidewarden cannot press these four for you. What it
+# can do is make sure the nudge lands every 2 hours instead of never.
+BUMP_CHANNEL_ID = 1472965935571664969      # #📣-bump
+BUMP_REMINDER_MINUTES = 120               # DISBOARD's own cooldown
+BUMP_QUIET_HOURS_UTC = (22, 5)            # no pings 01:00-07:59 UTC+3
+BUMP_BOTS = [
+    ("DISBOARD", "/bump"),
+    ("Discadia", "/bump"),
+    ("D-ify", "/bump"),
+    ("DiscordHome (DH Bump)", "dh!bump"),
+]
+
+
+def flavour_channel(guild):
+    """The only channel the ambient feed may post in. Never #general."""
+    channel = guild.get_channel(FLAVOUR_CHANNEL_ID)
+    if channel is None:
+        return None
+    if not channel.permissions_for(guild.me).send_messages:
+        return None
+    return channel
 
 # ===== ACHIEVEMENT SYSTEM =====
 ACHIEVEMENTS = {
@@ -223,6 +257,7 @@ async def on_ready():
     update_weather.start()
     daily_reset.start()
     random_events.start()
+    bump_reminders.start()
 
 @bot.event
 async def on_message(message):
@@ -302,18 +337,18 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-@tasks.loop(minutes=10)
+@tasks.loop(minutes=OCEAN_EVENT_MINUTES)
 async def ocean_events():
     for guild in bot.guilds:
         if guild.id in silent_guilds:
             continue
-        general_channel = discord.utils.get(guild.text_channels, name='general')
-        if general_channel and general_channel.permissions_for(guild.me).send_messages:
+        channel = flavour_channel(guild)
+        if channel:
             try:
                 event = random.choice(OCEAN_EVENTS)
                 embed = discord.Embed(title="🌊 Ocean Event!", description=event, color=discord.Color.blue())
                 embed.set_footer(text=f"Weather: {weather_status}")
-                await general_channel.send(embed=embed)
+                await channel.send(embed=embed)
             except:
                 pass
 
@@ -344,15 +379,15 @@ async def daily_reset():
         player["daily_bonus"] = 0
         player["last_login"] = datetime.now().isoformat()
 
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=RANDOM_EVENT_MINUTES)
 async def random_events():
     """Trigger random world events"""
-    if random.random() < 0.3:  # 30% chance every 30 mins
+    if random.random() < 0.5:  # coin flip every 3 hours
         for guild in bot.guilds:
             if guild.id in silent_guilds:
                 continue
-            general_channel = discord.utils.get(guild.text_channels, name='general')
-            if general_channel and general_channel.permissions_for(guild.me).send_messages:
+            channel = flavour_channel(guild)
+            if channel:
                 event_type = random.choice([
                     "treasure_found",
                     "pirate_attack",
@@ -393,9 +428,38 @@ async def random_events():
                     )
                 
                 try:
-                    await general_channel.send(embed=embed)
+                    await channel.send(embed=embed)
                 except:
                     pass
+
+@tasks.loop(minutes=BUMP_REMINDER_MINUTES)
+async def bump_reminders():
+    """Nudge a human to run the listing bots' bump commands (bots can't)."""
+    start, end = BUMP_QUIET_HOURS_UTC
+    hour = datetime.now(timezone.utc).hour
+    if start > end:
+        if hour >= start or hour < end:
+            return
+    elif start <= hour < end:
+        return
+
+    channel = bot.get_channel(BUMP_CHANNEL_ID)
+    if channel is None or not channel.permissions_for(channel.guild.me).send_messages:
+        return
+
+    # Plain text on purpose: @everyone is denied Embed Links in #📣-bump,
+    # so an embed would fail there while the Bot role's Send Messages still works.
+    lines = "\n".join(f"• **{name}** — `{command}`" for name, command in BUMP_BOTS)
+    message = (
+        "⏰ **Bump check — four commands, about 15 seconds:**\n"
+        f"{lines}\n"
+        "*Every 2 hours is what keeps Odyssey Lands findable. A bot can't run these — you can.*"
+    )
+    try:
+        await channel.send(message)
+    except discord.HTTPException:
+        pass
+
 
 # ===== COMMANDS =====
 
@@ -976,4 +1040,3 @@ if __name__ == '__main__':
         print("DISCORD_TOKEN environment variable is not set. Refusing to start.")
         raise SystemExit("DISCORD_TOKEN environment variable is not set.")
     bot.run(token)
-
