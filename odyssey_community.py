@@ -41,8 +41,8 @@ class RoleSelect(discord.ui.Select):
             return
         if not guild.me.guild_permissions.manage_roles:
             await interaction.response.send_message(
-                "I can't change roles yet - I'm missing the **Manage Roles** permission.",
-                ephemeral=True)
+                "I can't hand out roles yet - I need the Manage Roles permission. "
+                "Someone with admin has to tick it on my role.", ephemeral=True)
             return
 
         selected = {int(value) for value in self.values}
@@ -64,13 +64,13 @@ class RoleSelect(discord.ui.Select):
 
         lines = []
         if added:
-            lines.append("✅ Added: " + ", ".join(added))
+            lines.append("Added: " + ", ".join(added))
         if removed:
-            lines.append("➖ Removed: " + ", ".join(removed))
+            lines.append("Removed: " + ", ".join(removed))
         if failed:
-            lines.append("⚠️ Couldn't change (my role sits below those): " + ", ".join(failed))
+            lines.append("Couldn't change: " + ", ".join(failed) + " (my role sits below those)")
         if not lines:
-            lines.append("Nothing changed - you already had exactly that.")
+            lines.append("Nothing to change - you already had that.")
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
@@ -160,16 +160,13 @@ def register(bot, cfg):
             return
 
         embed = discord.Embed(
-            title="🎭 Pick your roles",
+            title="Roles",
             description=(
-                "Tap a menu, tick what you want, then tap anywhere to save. Tap the same "
-                "role again to remove it. Nothing here is required.\n\n"
-                "**Pings** decide what can notify you. **Platform** helps people find "
-                "players on the same edition. **Playstyle** and **Vibe** are just for fun."
+                "Pick what fits from the menus below. Tap a role again to drop it.\n"
+                "Pings only ping you if you take them. The rest is cosmetic."
             ),
             color=discord.Color.blurple(),
         )
-        embed.set_footer(text="Bot-managed roles. The reaction menus above still work too.")
         await ctx.send(embed=embed, view=RolePanelView())
 
 
@@ -188,11 +185,11 @@ def register(bot, cfg):
         )
         embed.add_field(
             name="Status",
-            value=(f"🟢 Online — {detail}" if online else "🌑 Offline — run `/start` to see how to bring it up"),
+            value=(f"Online - {detail}" if online else "Offline - `/start` shows how to bring it up"),
             inline=False)
         embed.add_field(
             name="Griefing",
-            value="Don't grief or steal outside agreed wars. Accidents get rolled back.",
+            value="No griefing or stealing outside agreed wars. Accidents get rolled back.",
             inline=False)
         embed.add_field(name="Discord", value=cfg['invite'], inline=False)
         await ctx.send(embed=embed)
@@ -207,23 +204,23 @@ def register(bot, cfg):
 
         if online:
             embed = discord.Embed(
-                title="🟢 The SMP is already online",
-                description="**Java:** `%s`\n**Bedrock:** `%s` — port `%s`" % (
+                title="The server is up",
+                description="**Java:** `%s`\n**Bedrock:** `%s` - port `%s`" % (
                     cfg['java_host'], cfg['bedrock_host'], cfg['bedrock_port']),
                 color=discord.Color.green(),
             )
-            embed.add_field(name="Server", value=detail or "responding", inline=False)
+            embed.add_field(name="Status", value=detail or "responding", inline=False)
             await ctx.send(embed=embed)
             return
 
         embed = discord.Embed(
-            title="🌑 The SMP is offline right now",
+            title="The server is offline",
             description=(
-                "Aternos shuts a free server down when nobody is on it. **You don't need "
-                "staff to start it** — anyone with share access can, in about 20 seconds.\n\n"
-                f"**1. Panel** — open {cfg['panel_url']} and press **Start**.\n"
-                "**2. Dawn launcher** (Windows/Mac/Linux) — connect your Aternos account "
-                "and press Start on the shared server.\n\n"
+                "Aternos shuts a free server down when nobody is on it. You don't need "
+                "staff to start it - anyone with share access can.\n\n"
+                f"**1.** Open {cfg['panel_url']} and press Start.\n"
+                "**2.** Or use the Dawn launcher: log in to Aternos, press Start on the "
+                "shared server.\n\n"
                 f"Then join `{cfg['java_host']}` on Java, or `{cfg['bedrock_host']}` port "
                 f"`{cfg['bedrock_port']}` on Bedrock."
             ),
@@ -232,10 +229,9 @@ def register(bot, cfg):
         embed.add_field(
             name="How to get share access",
             value=(
-                "Ask the owner to add your Aternos username under **Access** with the "
-                "**Start** permission — that's the only permission you need. It does not "
-                "hand over the account, and it's the route Aternos themselves recommend."
+                "Ask the owner to add your Aternos username under Access with Start "
+                "permission. That's all you need - it doesn't hand over the account."
             ),
             inline=False)
-        embed.set_footer(text="Tidewarden can't press Start itself: Aternos offers no API and their terms forbid automating the site.")
+        embed.set_footer(text="I can't press Start myself: Aternos has no API and their terms forbid automating the site.")
         await ctx.send(embed=embed)
