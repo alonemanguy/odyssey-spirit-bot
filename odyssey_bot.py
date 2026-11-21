@@ -55,7 +55,7 @@ SERVER_NAME = "Odyssey Lands SMP"
 SERVER_JAVA_HOST = os.environ.get("SERVER_JAVA_HOST", "odysseyland.aternos.me")
 SERVER_JAVA_PORT = int(os.environ.get("SERVER_JAVA_PORT", "25565"))
 SERVER_BEDROCK_HOST = os.environ.get("SERVER_BEDROCK_HOST", "odysseyland.aternos.me")
-SERVER_BEDROCK_PORT = os.environ.get("SERVER_BEDROCK_PORT", "19132")
+SERVER_BEDROCK_PORT = int(os.environ.get("SERVER_BEDROCK_PORT", "19132"))
 SERVER_PANEL_URL = os.environ.get("SERVER_PANEL_URL", "https://aternos.org/go/")
 SERVER_DISCORD_INVITE = "https://discord.gg/dgYqruDZx3"
 
@@ -256,7 +256,7 @@ async def ocean_events():
         if channel:
             try:
                 event = random.choice(OCEAN_EVENTS)
-                embed = discord.Embed(title="🌊 Ocean Event!", description=event, color=discord.Color.blue())
+                embed = discord.Embed(description=event, color=discord.Color.dark_teal())
                 embed.set_footer(text=f"Weather: {weather_status}")
                 await channel.send(embed=embed)
             except:
@@ -295,10 +295,7 @@ async def weekly_prompt():
     week = now.isocalendar()[1]
     prompt = WEEKLY_PROMPTS[week % len(WEEKLY_PROMPTS)]
     try:
-        await channel.send(
-            f"🌊 **Weekly prompt** — {prompt}\n"
-            "*Answer here. Same time next week.*"
-        )
+        await channel.send(f"**This week:** {prompt}")
     except discord.HTTPException as exc:
         print(f"Weekly prompt failed: {exc}")
         return
@@ -378,11 +375,11 @@ async def bump_reminders():
 
     # Plain text on purpose: @everyone is denied Embed Links in #📣-bump,
     # so an embed would fail there while the Bot role's Send Messages still works.
-    lines = "\n".join(f"• **{name}** — `{command}`" for name, command in BUMP_BOTS)
+    lines = "\n".join(f"**{name}** - `{command}`" for name, command in BUMP_BOTS)
     message = (
-        "⏰ **Bump check — four commands, about 15 seconds:**\n"
+        "**Bump time.** Four commands, about 15 seconds:\n"
         f"{lines}\n"
-        "*Every 2 hours is what keeps Odyssey Lands findable. A bot can't run these — you can.*"
+        "A bot can't run these - you can. This is what keeps the server in the listings."
     )
     try:
         await channel.send(message)
@@ -466,8 +463,8 @@ async def fish(ctx):
             player["xp_needed"] = int(player["xp_needed"] * 1.15)
 
         embed = discord.Embed(
-            title=f"🎣 Caught a {fish_type}!",
-            description=f"You reeled in a **{fish_type}** {fish_info['emoji']}\n**+{value} Coins** | **+{xp} XP**",
+            title=f"Caught: {fish_type}",
+            description=f"{fish_info['emoji']} **+{value} coins** | **+{xp} XP**",
             color=discord.Color.blue()
         )
         embed.add_field(name="Total Catches", value=player["catches"])
@@ -475,8 +472,8 @@ async def fish(ctx):
         embed.add_field(name="Level", value=f"Lvl {player['level']} ({player['xp']}/{player['xp_needed']} XP)")
     else:
         embed = discord.Embed(
-            title="🎣 The Fish Got Away!",
-            description="Better luck next time, explorer!",
+            title="Nothing on the line",
+            description="It got away. Cast again.",
             color=discord.Color.red()
         )
 
@@ -531,7 +528,7 @@ async def daily(ctx):
         last_bonus_date = None
 
     if last_bonus_date == today:
-        await ctx.send("⏰ You already claimed your daily bonus! Come back tomorrow!")
+        await ctx.send("Already claimed today. Back tomorrow.")
         return
 
     # Base bonus + streak bonus
@@ -543,19 +540,19 @@ async def daily(ctx):
     player["daily_bonus"] = datetime.now().isoformat()
 
     embed = discord.Embed(
-        title="✨ Daily Bonus Claimed!",
-        description=f"**+{total_bonus} coins!**\nBase: {base_bonus} | Streak Bonus: {streak_bonus}",
+        title="Daily coins",
+        description=f"**+{total_bonus}** ({base_bonus} base + {streak_bonus} streak)",
         color=discord.Color.gold()
     )
-    embed.add_field(name="Login Streak", value=f"🔥 {player['login_streak']} days")
-    embed.add_field(name="New Balance", value=f"🪙 {player['balance']}")
+    embed.add_field(name="Login Streak", value=f"🔥 {player['login_streak']} days", inline=True)
+    embed.add_field(name="New Balance", value=f"🪙 {player['balance']}", inline=True)
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name='duel', description="Duel another member for coins and XP")
 async def duel(ctx, opponent: discord.Member):
     """Challenge someone to a duel!"""
     if opponent.bot:
-        await ctx.send("❌ You can't duel a bot!")
+        await ctx.send("Bots don't duel.")
         return
 
     challenger = get_player_data(ctx.author.id)
@@ -769,23 +766,23 @@ async def pet(ctx, action=None, pet_name=None):
     elif action == "adopt" and pet_name:
         pet_name = pet_name.lower()
         if pet_name not in PETS:
-            await ctx.send("❌ That pet doesn't exist! Use !pet shop to see available pets.")
+            await ctx.send("No pet by that name. `/pet shop` lists them.")
             return
 
         pet_info = PETS[pet_name]
         if player["balance"] < pet_info["cost"]:
-            await ctx.send(f"❌ You need {pet_info['cost']} coins! You have {player['balance']}.")
+            await ctx.send(f"That costs {pet_info['cost']}. You have {player['balance']}.")
             return
 
         player["balance"] -= pet_info["cost"]
         player["pet"] = pet_name
         player["pet_level"] = 1
 
-        await ctx.send(f"🎉 You adopted a {pet_info['name']}! It gives you a {int((pet_info['bonus']-1)*100)}% bonus!")
+        await ctx.send(f"Adopted {pet_info['name']} - {int((pet_info['bonus']-1)*100)}% bonus from now on.")
 
     elif action == "info":
         if not player["pet"]:
-            await ctx.send("❌ You don't have a pet! Use !pet shop to adopt one.")
+            await ctx.send("You don't have a pet yet. `/pet shop` has them.")
             return
 
         pet_info = PETS[player["pet"]]
@@ -842,17 +839,17 @@ async def title(ctx, title_name=None):
         await ctx.send(embed=embed)
     else:
         if title_name.lower() not in TITLES:
-            await ctx.send("❌ That title doesn't exist!")
+            await ctx.send("No title by that name. `/title` lists them.")
             return
 
         player["active_title"] = TITLES[title_name.lower()]
-        await ctx.send(f"✨ Your new title: {player['active_title']}")
+        await ctx.send(f"Title set: {player['active_title']}")
 
 @bot.hybrid_command(name='leaderboard', description="Top 10 explorers by coins")
 async def leaderboard(ctx):
     """View the leaderboard!"""
     if not player_data:
-        await ctx.send("No one has started their adventure yet!")
+        await ctx.send("Nobody's on the board yet.")
         return
 
     sorted_players = sorted(player_data.items(), key=lambda x: x[1]["balance"], reverse=True)[:10]
@@ -908,14 +905,14 @@ async def weather(ctx):
     embed = discord.Embed(title="🌊 Ocean Weather", description=f"Current Conditions: **{weather_status}**", color=discord.Color.blue())
 
     weather_descriptions = {
-        "Calm": "Perfect conditions! 😊",
-        "Stormy": "Dangerous waters! ⛈️",
-        "Misty": "Mysteries hide in the fog... 🌫️",
-        "Sunny": "Beautiful day! 🌞",
-        "Foggy": "Low visibility! 🌫️",
-        "Magical": "Mystical energy! ✨",
-        "Cursed": "Dark forces! ☠️",
-        "Blessed": "Divine power! 💫",
+        "Calm": "Flat water, no wind.",
+        "Stormy": "Rough swell, bad visibility.",
+        "Misty": "Fog on the water.",
+        "Sunny": "Clear sky.",
+        "Foggy": "Low visibility.",
+        "Magical": "Something in the air.",
+        "Cursed": "The water looks wrong.",
+        "Blessed": "Kind weather for once.",
     }
 
     embed.add_field(name="Conditions", value=weather_descriptions.get(weather_status, "Unknown"))
