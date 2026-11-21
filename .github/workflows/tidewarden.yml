@@ -2,7 +2,7 @@ name: Tidewarden
 
 on:
   schedule:
-    # every 5 hours; the job below runs ~355 min so the next one queues and takes over
+    # every 5 hours (300 minutes)
     - cron: "0 */5 * * *"
   workflow_dispatch:
 
@@ -13,7 +13,9 @@ concurrency:
 jobs:
   bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    # Must not exceed the 300-minute schedule, or the next run starts while this
+    # one is still alive and both answer the same command.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
 
@@ -28,5 +30,7 @@ jobs:
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           PYTHONUNBUFFERED: "1"
+          # The bot saves and closes itself at this point.
+          RUN_BUDGET_MINUTES: "285"
         run: python odyssey_bot.py
-        timeout-minutes: 350
+        timeout-minutes: 290
