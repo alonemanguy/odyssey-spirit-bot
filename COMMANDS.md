@@ -13,12 +13,14 @@ never synced. A restart syncs them automatically.
 | --- | --- |
 | `/start` | Checks whether the SMP is online. If it is, gives the join addresses. If not, explains the two ways to start it (Aternos panel or the Dawn launcher) and how share access works. |
 | `/server` | Addresses, ports and live status in one card. |
+| `/wake` | Asks Aternos to start the SMP right now (five-minute cooldown), for when nobody wants to open the panel. |
 | `/roles` | Staff only. Posts the four self-serve role menus. Re-running posts a fresh copy. |
 | `/guide` | This guide, in Discord. |
 
-Tidewarden cannot start the Aternos server itself. Aternos publishes no API and
-their Terms §5 forbid automating their website, so pressing Start stays a human
-action — but **anyone with share access** can do it, not just staff.
+`/wake` presses the panel's own Start button using a signed-in session cookie
+kept in the bot's secrets, and it retries nothing on failure — if Aternos answers
+with an error, the channel says so and a human presses Start. **Anyone with
+share access** can do that, not just staff.
 
 ## Core
 
