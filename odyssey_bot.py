@@ -18,8 +18,12 @@ from odyssey_data import (
     QUESTS,
     TITLES,
     WEATHER_TYPES,
+    SESSIONS,
     WEEKLY_PROMPTS,
 )
+
+import odyssey_aternos
+import odyssey_growth
 
 # ===== GUILD =====
 GUILD_ID = 1345963951724171364             # Odyssey Lands
@@ -27,6 +31,12 @@ GUILD_ID = 1345963951724171364             # Odyssey Lands
 # Initialize bot with intents
 intents = discord.Intents.default()
 intents.message_content = True             # still needed for the ! prefix commands
+
+# The Server Members intent is privileged: if it is switched on here but not in
+# the Discord developer portal, the bot cannot log in at all. So it stays off
+# unless it is asked for, and the join watcher below works without it.
+if os.environ.get("ENABLE_MEMBER_INTENT", "").strip().lower() in {"1", "true", "yes"}:
+    intents.members = True
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None,
                    case_insensitive=True)
 
@@ -41,7 +51,7 @@ weather_status = "Calm"
 # world - coins, levels, pets and streaks vanished every few hours. They are now
 # written to disk after each command and reloaded on boot.
 STATE_FILE = os.environ.get("ODYSSEY_STATE_FILE", "state/odyssey_state.json")
-state_meta = {"last_weekly_prompt": None}
+state_meta = {"last_daily_prompt": None, "last_session_nudge": None}
 
 # How long one process may run. The workflow fires every 300 minutes, so this
 # has to stay below that or two copies of the bot answer the same command.
@@ -59,10 +69,15 @@ SERVER_BEDROCK_PORT = int(os.environ.get("SERVER_BEDROCK_PORT", "19132"))
 SERVER_PANEL_URL = os.environ.get("SERVER_PANEL_URL", "https://aternos.org/go/")
 SERVER_DISCORD_INVITE = "https://discord.gg/dgYqruDZx3"
 
-# ===== CHANNELS =====
-PROMPT_CHANNEL_ID = int(os.environ.get("PROMPT_CHANNEL_ID", "1345963952668020911"))  # #general
-WEEKLY_PROMPT_WEEKDAY = 5          # Monday is 0, so 5 = Saturday
-WEEKLY_PROMPT_HOUR_UTC = 17
+# ===== ROUTINES =====
+# The rhythm the bot keeps on its own: one question a day at a fixed hour, and a
+# nudge an hour before each standing evening (see SESSIONS). Both land in #event-announcements
+# because the bot is denied Send Messages in #general on purpose (see
+# FLAVOUR_CHANNEL_ID) - a prompt aimed at #general could never have posted.
+ROUTINE_CHANNEL_ID = int(os.environ.get("ROUTINE_CHANNEL_ID", "1345976335700328530"))
+DAILY_PROMPT_HOUR_UTC = 15          # 18:00 UTC+3 - after school, before dinner
+SESSION_NUDGE_HOUR_UTC = 16         # 19:00 UTC+3, an hour before either evening
+# Which days count is SESSIONS in odyssey_data.py: 2 = Wednesday, 6 = Sunday.
 
 def load_state():
     """Read saved profiles from disk. Missing or corrupt file just means a new world."""
@@ -222,7 +237,7 @@ def start_background_loops():
     later loops were never started at all.
     """
     for loop in (ocean_events, update_weather, random_events, bump_reminders,
-                 weekly_prompt, autosave):
+                 routines, newcomer_watch, autosave):
         if not loop.is_running():
             loop.start()
 
@@ -235,6 +250,11 @@ async def on_ready():
         print(f"Not a member of guild {GUILD_ID} yet - invite the bot and restart.")
     else:
         print(f"Guild: {guild.name} ({guild.id}), {guild.member_count} members")
+        # A baseline for invite attribution: a join is a diff against this.
+        await odyssey_growth.snapshot(guild, state_meta, save_state)
+    print("Aternos start: " + ("configured" if odyssey_aternos.configured()
+                               else "NOT configured (ATERNOS_SESSION/ATERNOS_SERVER)"))
+    print("Member intent: " + ("on" if bot.intents.members else "off - polling instead"))
     start_background_loops()
     print("Commands ready: " + ", ".join(sorted(c.name for c in bot.commands)))
 
@@ -275,31 +295,58 @@ async def autosave():
 
 
 @tasks.loop(minutes=30)
-async def weekly_prompt():
-    """One conversation starter a week, in #general."""
-    now = datetime.now(timezone.utc)
-    if now.weekday() != WEEKLY_PROMPT_WEEKDAY or now.hour != WEEKLY_PROMPT_HOUR_UTC:
-        return
-    today = now.date().isoformat()
-    if state_meta.get("last_weekly_prompt") == today:
-        return
+async def routines():
+    """The weekly rhythm: a daily question and the nudge before each session.
 
-    channel = bot.get_channel(PROMPT_CHANNEL_ID)
+    One question a day, always the same hour, answerable in one line. On
+    Wednesday the session line rides along with it, so the day gets one
+    notification instead of two. Each post is guarded by date, so a 30-minute
+    tick can't repeat it - and a run that starts mid-hour catches up on its
+    first tick.
+    """
+    now = datetime.now(timezone.utc)
+    channel = bot.get_channel(ROUTINE_CHANNEL_ID)
     if channel is None:
-        print(f"Weekly prompt: channel {PROMPT_CHANNEL_ID} not found")
+        print(f"Routine: channel {ROUTINE_CHANNEL_ID} not found")
         return
     if not channel.permissions_for(channel.guild.me).send_messages:
-        print("Weekly prompt: no Send Messages permission in the prompt channel")
+        print("Routine: no Send Messages permission in the routine channel")
         return
 
-    week = now.isocalendar()[1]
-    prompt = WEEKLY_PROMPTS[week % len(WEEKLY_PROMPTS)]
-    try:
-        await channel.send(f"**This week:** {prompt}")
-    except discord.HTTPException as exc:
-        print(f"Weekly prompt failed: {exc}")
+    today = now.date().isoformat()
+    session = SESSIONS.get(now.weekday())
+
+    # 1. An hour before a standing evening: the one message that has to land.
+    if session and now.hour == SESSION_NUDGE_HOUR_UTC:
+        guard = f"last_nudge_{now.weekday()}"
+        if state_meta.get(guard) != today:
+            try:
+                await channel.send(session["nudge"])
+            except discord.HTTPException as exc:
+                print(f"Session nudge failed: {exc}")
+                return
+            state_meta[guard] = today
+            save_state()
+            return
+
+    # 2. The daily question.
+    if now.hour != DAILY_PROMPT_HOUR_UTC:
         return
-    state_meta["last_weekly_prompt"] = today
+    if state_meta.get("last_daily_prompt") == today:
+        return
+
+    # Rotate by day of the year, so the same weekday doesn't always get the
+    # same question and the list lasts longer than a fortnight.
+    prompt = WEEKLY_PROMPTS[now.timetuple().tm_yday % len(WEEKLY_PROMPTS)]
+    message = f"**Today:** {prompt}"
+    if session:
+        message += f"\n{session['tonight']}"
+    try:
+        await channel.send(message)
+    except discord.HTTPException as exc:
+        print(f"Daily prompt failed: {exc}")
+        return
+    state_meta["last_daily_prompt"] = today
     save_state()
 
 @tasks.loop(minutes=RANDOM_EVENT_MINUTES)
@@ -385,6 +432,99 @@ async def bump_reminders():
         await channel.send(message)
     except discord.HTTPException:
         pass
+
+
+# ===== WAKE ON ARRIVAL =====
+# Every ad sends people to a server Aternos has put to sleep, and a newcomer who
+# finds it offline does not come back. So the bot presses Start for them, through
+# the panel's own endpoint (odyssey_aternos.py), and says so in the channel where
+# "the server is up" belongs. BOOT_NOTICE_CHANNEL_ID is #event-announcements by
+# default because the bot is denied Send Messages in #general on purpose.
+BOOT_NOTICE_CHANNEL_ID = int(os.environ.get("BOOT_NOTICE_CHANNEL_ID", str(ROUTINE_CHANNEL_ID)))
+NEWCOMER_POLL_MINUTES = int(os.environ.get("NEWCOMER_POLL_MINUTES", "2"))
+
+
+async def wake_for_newcomer(who=None):
+    """Start the SMP, and report it where people will see it."""
+    channel = bot.get_channel(BOOT_NOTICE_CHANNEL_ID)
+    if not odyssey_aternos.configured():
+        print("Someone arrived, but ATERNOS_SESSION / ATERNOS_SERVER are not set")
+        return False
+
+    try:
+        result = await odyssey_aternos.request_start()
+    except odyssey_aternos.AternosError as exc:
+        print(f"Could not start the SMP: {exc}")
+        if channel:
+            try:
+                await channel.send(
+                    f"**The server didn't wake.** {str(exc)[:280]} - someone needs to "
+                    f"press Start at {SERVER_PANEL_URL}")
+            except discord.HTTPException:
+                pass
+        return False
+
+    if result.get("started") and channel:
+        lead = f"**{who} just joined.** " if who else ""
+        try:
+            await channel.send(
+                lead + "Bringing the server up - give it a minute, then java "
+                f"`{SERVER_JAVA_HOST}` or bedrock `{SERVER_BEDROCK_HOST}` "
+                f"port `{SERVER_BEDROCK_PORT}`.")
+        except discord.HTTPException:
+            pass
+    return bool(result.get("started"))
+
+
+@tasks.loop(minutes=NEWCOMER_POLL_MINUTES)
+async def newcomer_watch():
+    """Notice an arrival without needing the privileged members intent.
+
+    Both guild.member_count and the invite use counts are readable with the
+    default intents, so a rising count or a spent invite is enough. The very
+    first tick only records a baseline - otherwise every restart would look
+    like a join and start a server nobody asked for.
+    """
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+
+    count = guild.member_count
+    previous = state_meta.get("member_count")
+    state_meta["member_count"] = count
+
+    arrivals = False
+    try:
+        invites = await guild.invites()
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"Newcomer watch could not read invites: {exc}")
+        invites = None
+    if invites is not None:
+        previous_uses = state_meta.get("invite_uses") or {}
+        if any(invite.uses and invite.uses > previous_uses.get(invite.code, 0)
+               for invite in invites):
+            arrivals = True
+        state_meta["invite_uses"] = {i.code: (i.uses or 0) for i in invites}
+
+    grew = previous is not None and count > previous
+    save_state()
+
+    if grew or arrivals:
+        print(f"Arrival detected (members {previous} -> {count})")
+        await wake_for_newcomer()
+
+
+@bot.event
+async def on_member_join(member):
+    """Only fires when ENABLE_MEMBER_INTENT is set *and* the portal allows it."""
+    if member.bot or member.guild.id != GUILD_ID:
+        return
+    credit = await odyssey_growth.note_join(member, state_meta, save_state)
+    if credit:
+        inviter, code, total = credit
+        print(f"{member.display_name} arrived on {code}, invited by "
+              f"{inviter} (their {total}th)")
+    await wake_for_newcomer(member.display_name)
 
 
 # ===== COMMANDS =====
@@ -989,6 +1129,15 @@ odyssey_community.register(bot, {
     "bedrock_port": SERVER_BEDROCK_PORT,
     "panel_url": SERVER_PANEL_URL,
     "invite": SERVER_DISCORD_INVITE,
+    "wake": wake_for_newcomer,
+    "wake_cooldown": odyssey_aternos.seconds_until_allowed,
+})
+
+odyssey_growth.register(bot, {
+    "guild_id": GUILD_ID,
+    "state": state_meta,
+    "save": save_state,
+    "player": get_player_data,
 })
 
 
