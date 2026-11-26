@@ -12,9 +12,11 @@ spawn, the address and the two evenings.
 3. Restart. `datapack list` in the console should show
    `file/odyssey-welcome.zip` as enabled.
 
-`pack_format` 81 matches the run of the server in November 2026 (the same number
-`world/datapack/pack.mcmeta` uses). If a future Minecraft version refuses the
-pack, bump that number - nothing else in here is version-specific.
+`pack_format` 107 plus `min_format`/`max_format` `[107, 1]` is what Minecraft
+26.2 wants - the version this server actually runs (PaperMC 26.2). The first
+build shipped 81, which is 1.21.7-1.21.8, and the server would have refused it.
+If a future Minecraft version refuses the pack, bump those numbers - nothing
+else in here is version-specific.
 
 ## Why an advancement instead of a load tag
 
