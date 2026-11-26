@@ -51,8 +51,10 @@ _INTERSTITIAL = ("just a moment", "cf_chl", "cf-browser-verification",
                  "challenge-platform", "attention required", "cf-error-details")
 
 # Nothing in here is persisted: a restart simply means the next request is
-# allowed again, which is what we want.
-_last_request_at = 0.0
+# allowed again, which is what we want. None means "has not asked yet":
+# monotonic() starts near zero on a fresh runner, so 0.0 reads as "asked a
+# moment ago" and the very first wake is silently skipped.
+_last_request_at = None
 
 
 class AternosError(Exception):
@@ -75,6 +77,8 @@ def configured():
 
 def seconds_until_allowed():
     """How long the cooldown still has to run."""
+    if _last_request_at is None:
+        return 0
     return max(0, int(COOLDOWN_SECONDS - (time.monotonic() - _last_request_at)))
 
 
