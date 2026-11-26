@@ -2,20 +2,26 @@
 
 Aternos publishes no API, and their terms discourage automating the panel. This
 module does the one thing a person does when a newcomer arrives: it opens
-`/server/` with a signed-in session, reads the page's own AJAX token, and POSTs
-to the same `/ajax/server/start` endpoint the Start button uses. Nothing else is
-touched, and it refuses to ask more than once every COOLDOWN_SECONDS.
+`/server/` with a signed-in session and POSTs to the same `/ajax/server/start`
+endpoint the Start button uses. Nothing else is touched, and it refuses to ask
+more than once every COOLDOWN_SECONDS.
 
-Plain HTTP clients are turned away before the cookie is ever read: aternos.org
-sits behind Cloudflare, which answers 403 "Just a moment..." to anything whose
-TLS fingerprint is not a browser's - aiohttp included, and a spoofed User-Agent
-does not change it. So the two calls go through curl_cffi with Chrome's
-fingerprint, which Cloudflare accepted from this project's own machine where a
-plain client was blocked. The fingerprint is only half of it - Cloudflare also
-weighs the IP, and GitHub's runner addresses are still challenged, which is the
-one wall this module cannot climb from Actions. It cannot, however, make an
-expired session valid: with a dead cookie the panel simply lands on its login
-page, which is what the redirect check below reports.
+Two things about the panel are worth knowing before reading the request:
+
+* Plain HTTP clients are turned away before the cookie is ever read: aternos.org
+  sits behind Cloudflare, which answers 403 "Just a moment..." to anything whose
+  TLS fingerprint is not a browser's - aiohttp included, and a spoofed
+  User-Agent does not change it. So both calls go through curl_cffi with
+  Chrome's fingerprint. The fingerprint is only half of it - Cloudflare also
+  weighs the IP, and GitHub's runner addresses are still challenged, which is
+  the one wall this module cannot climb from Actions.
+* The panel used to print `var AJAX_TOKEN = "..."` in the page. It no longer
+  does: the page's inline script picks one of two constant tokens depending on
+  whether the browser looks real, and `SEC` is a `key:value` pair the page
+  invents and mirrors into an `ATERNOS_SEC_<key>` cookie. Both tokens are
+  accepted, so this module uses the same pair and its own cookie rather than
+  scraping anything. A dead cookie still cannot be faked: the panel quietly
+  lands on its login page, which is what `_is_login_page` reports.
 
 Credentials come from the environment and are never printed, logged or written
 to the state file:
@@ -29,7 +35,8 @@ the bot can show in the channel, rather than failing silently.
 
 import json
 import os
-import re
+import secrets
+import string
 import time
 
 from curl_cffi.requests import AsyncSession
@@ -41,14 +48,19 @@ COOLDOWN_SECONDS = int(os.environ.get("ATERNOS_COOLDOWN_SECONDS", "300"))
 TIMEOUT = 20
 IMPERSONATE = "chrome"
 
-_TOKEN_RE = re.compile(r"var\s+AJAX_TOKEN\s*=\s*['\"]([^'\"]+)['\"]")
-_SEC_RE = re.compile(r"var\s+SEC\s*=\s*['\"]([^'\"]+)['\"]")
-_SERVER_RE = re.compile(r"var\s+SERVER\s*=\s*['\"]([^'\"]+)['\"]")
+# The two token strings the panel's inline script chooses between, in the order
+# it writes them. Either is accepted by /ajax/server/start.
+_AJAX_TOKENS = ("HP2qIWSGp2d2pEp4f3L2", "qRyqjWrArgfE4L1y7QtX")
+_SEC_ALPHABET = string.ascii_letters + string.digits
+_SEC_LENGTH = 16
 
 # Only a Cloudflare interstitial carries these, so finding one means the request
 # never reached the panel.
 _INTERSTITIAL = ("just a moment", "cf_chl", "cf-browser-verification",
                  "challenge-platform", "attention required", "cf-error-details")
+
+# States the panel reports through data.status. None of them is a failure.
+_ALREADY = ("already", "online", "starting", "queue", "queued", "stopping")
 
 # Nothing in here is persisted: a restart simply means the next request is
 # allowed again, which is what we want. None means "has not asked yet":
@@ -88,6 +100,13 @@ def _is_login_page(response):
     return url.rstrip("/").endswith("/go")
 
 
+def _sec_pair():
+    """The panel's own CSRF pair: a cookie key and the value sent back in SEC."""
+    key = "".join(secrets.choice(_SEC_ALPHABET) for _ in range(_SEC_LENGTH))
+    value = "".join(secrets.choice(_SEC_ALPHABET) for _ in range(_SEC_LENGTH))
+    return key, value
+
+
 async def request_start():
     """Ask the panel to start the server.
 
@@ -105,10 +124,14 @@ async def request_start():
         return {"started": False, "already": True,
                 "message": f"asked {COOLDOWN_SECONDS - waiting}s ago"}
 
+    server_id = os.environ["ATERNOS_SERVER"]
+    key, value = _sec_pair()
     cookies = {
         "ATERNOS_SESSION": _cookie_value(os.environ["ATERNOS_SESSION"]),
-        "ATERNOS_SERVER": os.environ["ATERNOS_SERVER"],
+        "ATERNOS_SERVER": server_id,
+        f"ATERNOS_SEC_{key}": value,
     }
+    params = {"TOKEN": _AJAX_TOKENS[0], "SEC": f"{key}:{value}", "SERVER": server_id}
     _last_request_at = time.monotonic()
 
     try:
@@ -130,24 +153,13 @@ async def request_start():
                     f"the panel answered {response.status_code} - the session "
                     "cookie has probably expired")
 
-            token = _TOKEN_RE.search(page)
-            sec = _SEC_RE.search(page)
-            if not token or not sec:
-                raise AternosError(
-                    "the panel did not return a start token - sign in again and "
-                    "copy a fresh ATERNOS_SESSION")
-            server_id = _SERVER_RE.search(page)
-            params = {
-                "TOKEN": token.group(1),
-                "SEC": sec.group(1),
-                "SERVER": server_id.group(1) if server_id else os.environ["ATERNOS_SERVER"],
-            }
-
             started = await http.post(
                 f"{PANEL}/ajax/server/start",
                 params=params,
                 cookies=cookies,
-                headers={"Referer": f"{PANEL}/server/"},
+                headers={"Content-Type": "application/json",
+                         "Referer": f"{PANEL}/server/"},
+                data="{}",
             )
             body = started.text or ""
     except RequestsError as exc:
@@ -158,14 +170,17 @@ async def request_start():
     except ValueError:
         raise AternosError("the panel answered something that is not JSON") from None
 
-    message = str(payload.get("message") or "")
-    if payload.get("success"):
+    data = payload.get("data") or {}
+    status = str(data.get("status") or "").lower()
+    # The panel's own "error" field is the unhelpful "Sorry, an error occured!"
+    # even when data.status says the server is simply already up, so status wins.
+    message = str(data.get("message") or "")
+    error = str(payload.get("error") or "")
+
+    if payload.get("success") and status not in _ALREADY:
         return {"started": True, "already": False, "message": message}
-
-    # Aternos says "Server is already online", "Already starting", "Queued" and
-    # friends with success=false. None of those is a failure worth reporting.
-    lowered = message.lower()
-    if any(word in lowered for word in ("already", "online", "starting", "queue")):
-        return {"started": False, "already": True, "message": message}
-
-    raise AternosError(message or "the panel refused the start")
+    if status in _ALREADY or any(word in message.lower() for word in _ALREADY):
+        return {"started": False, "already": True, "message": message or status}
+    if status or error:
+        raise AternosError(message or error or f"the panel answered status {status}")
+    raise AternosError("the panel refused the start")
