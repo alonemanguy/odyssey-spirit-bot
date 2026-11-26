@@ -30,6 +30,14 @@ jobs:
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           PYTHONUNBUFFERED: "1"
+          # Aternos has no API: these are the panel's own session cookie and
+          # server id, used to press Start when a newcomer arrives. Unset is
+          # fine - /wake then just explains the panel link instead.
+          ATERNOS_SESSION: ${{ secrets.ATERNOS_SESSION }}
+          ATERNOS_SERVER: ${{ secrets.ATERNOS_SERVER }}
+          # Turn on the Server Members intent in the Discord developer portal
+          # FIRST, then add this repository variable, or the bot cannot log in.
+          ENABLE_MEMBER_INTENT: ${{ vars.ENABLE_MEMBER_INTENT }}
           # The bot saves and closes itself at this point.
           RUN_BUDGET_MINUTES: "285"
         run: python odyssey_bot.py
