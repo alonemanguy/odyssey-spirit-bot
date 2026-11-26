@@ -10,10 +10,12 @@ Plain HTTP clients are turned away before the cookie is ever read: aternos.org
 sits behind Cloudflare, which answers 403 "Just a moment..." to anything whose
 TLS fingerprint is not a browser's - aiohttp included, and a spoofed User-Agent
 does not change it. So the two calls go through curl_cffi with Chrome's
-fingerprint, which Cloudflare accepts from the same machine a plain client gets
-blocked from. It cannot, however, make an expired session valid: with a dead
-cookie the panel simply lands on its login page, which is what the redirect
-check below reports.
+fingerprint, which Cloudflare accepted from this project's own machine where a
+plain client was blocked. The fingerprint is only half of it - Cloudflare also
+weighs the IP, and GitHub's runner addresses are still challenged, which is the
+one wall this module cannot climb from Actions. It cannot, however, make an
+expired session valid: with a dead cookie the panel simply lands on its login
+page, which is what the redirect check below reports.
 
 Credentials come from the environment and are never printed, logged or written
 to the state file:
@@ -118,9 +120,8 @@ async def request_start():
                 blocked = any(marker in page.lower() for marker in _INTERSTITIAL)
                 if blocked:
                     raise AternosError(
-                        "Cloudflare blocked the request before Aternos saw the "
-                        "cookie, so the cookie is probably fine - press Start at "
-                        f"{PANEL}/go/ instead")
+                        "the panel turned the request away before the server "
+                        "heard it")
                 raise AternosError(
                     f"the panel answered {response.status_code} - the session "
                     "cookie has probably expired")
