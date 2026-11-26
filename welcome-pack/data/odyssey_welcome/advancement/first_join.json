@@ -1,0 +1,10 @@
+{
+  "criteria": {
+    "ticked": {
+      "trigger": "minecraft:tick"
+    }
+  },
+  "rewards": {
+    "function": "odyssey_welcome:welcome"
+  }
+}

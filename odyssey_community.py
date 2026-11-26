@@ -170,6 +170,30 @@ def register(bot, cfg):
         await ctx.send(embed=embed, view=RolePanelView())
 
 
+    @bot.hybrid_command(name='wake', description="Ask Aternos to start the SMP right now")
+    async def wake_cmd(ctx):
+        """The same Start button the panel has, without the login."""
+        await ctx.defer()
+        wake = cfg.get('wake')
+        if wake is None:
+            await ctx.send("The wake-up wiring is not configured.")
+            return
+
+        waiting = cfg['wake_cooldown']() if cfg.get('wake_cooldown') else 0
+        if waiting:
+            await ctx.send(f"Already asked a moment ago - try again in {waiting // 60 + 1} min.")
+            return
+
+        started = await wake()
+        if started:
+            # wake() posts the address itself, in the channel it belongs in.
+            await ctx.send("Asked. It takes about a minute to come up.")
+        else:
+            await ctx.send(
+                "It was already up or already starting, or the start failed - "
+                "`/start` shows the panel link if it stays offline.")
+
+
     @bot.hybrid_command(name='server', description="Addresses, ports and live status for the SMP")
     async def server_cmd(ctx):
         """Addresses, ports and status for the SMP."""
