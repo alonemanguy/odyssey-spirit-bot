@@ -1,0 +1,29 @@
+name: Wake once
+
+# A Start button that does not need anyone to be signed in to the panel: run
+# this from the Actions tab and the runner asks Aternos once, then posts the
+# outcome in #event-announcements. Separate from tidewarden.yml so it never
+# collides with the long-running bot.
+on:
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Ask the panel to start
+        env:
+          ATERNOS_SESSION: ${{ secrets.ATERNOS_SESSION }}
+          ATERNOS_SERVER: ${{ secrets.ATERNOS_SERVER }}
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+        run: python wake_once.py
