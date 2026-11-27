@@ -1,0 +1,20 @@
+name: address-fix
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Rewrite the join lines
+        run: python3 .github/bot_fix.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add odyssey_bot.py odyssey_data.py wake_once.py
+          if git diff --cached --quiet; then echo "no change"; else git commit -m "Announce the live Aternos port in join messages"; git push origin HEAD:main; fi
