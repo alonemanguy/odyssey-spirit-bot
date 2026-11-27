@@ -27,9 +27,8 @@ async def ask():
     except odyssey_aternos.AternosError as exc:
         return f"**The server didn't wake.** {exc}"
     if result.get("started"):
-        return ("**Bringing the server up** - give it a minute, then java "
-                "`odysseyland.aternos.me` or bedrock `odysseyland.aternos.me` "
-                "port `19132`.")
+        return ("**Bringing the server up** - give it a minute, then Java "
+                "`odysseyland.aternos.me:56870` or Bedrock same host, port `19132`.")
     return f"**No start needed.** {result.get('message') or 'it was already up or starting'}"
 
 

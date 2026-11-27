@@ -27,17 +27,17 @@ WEEKLY_PROMPTS = [
 SESSIONS = {
     2: {  # Wednesday - the session
         "nudge": (
-            "⏰ **Session in an hour.** Java `odysseyland.aternos.me` · Bedrock same "
+            "⏰ **Session in an hour.** Java `odysseyland.aternos.me:56870` · Bedrock same "
             "address, port `19132`. Hop in voice even if you're not playing yet."
         ),
         "tonight": (
-            "*Session tonight, 8pm UTC+3 - Java `odysseyland.aternos.me`, "
+            "*Session tonight, 8pm UTC+3 - Java `odysseyland.aternos.me:56870`, "
             "Bedrock port `19132`.*"
         ),
     },
     6: {  # Sunday - build night
         "nudge": (
-            "⏰ **Build night in an hour.** Java `odysseyland.aternos.me` · Bedrock "
+            "⏰ **Build night in an hour.** Java `odysseyland.aternos.me:56870` · Bedrock "
             "same address, port `19132`. Bring what you're working on, or come and "
             "look at everyone else's."
         ),

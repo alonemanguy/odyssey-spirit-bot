@@ -63,7 +63,7 @@ RUN_BUDGET_MINUTES = int(os.environ.get("RUN_BUDGET_MINUTES", "285"))
 # has been granted the "Start" permission can use it.
 SERVER_NAME = "Odyssey Lands SMP"
 SERVER_JAVA_HOST = os.environ.get("SERVER_JAVA_HOST", "odysseyland.aternos.me")
-SERVER_JAVA_PORT = int(os.environ.get("SERVER_JAVA_PORT", "25565"))
+SERVER_JAVA_PORT = int(os.environ.get("SERVER_JAVA_PORT", "56870"))
 SERVER_BEDROCK_HOST = os.environ.get("SERVER_BEDROCK_HOST", "odysseyland.aternos.me")
 SERVER_BEDROCK_PORT = int(os.environ.get("SERVER_BEDROCK_PORT", "19132"))
 SERVER_PANEL_URL = os.environ.get("SERVER_PANEL_URL", "https://aternos.org/go/")
