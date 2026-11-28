@@ -17,7 +17,7 @@ All 18 commands are hybrid, so `/fish` and `!fish` both work.
 | `RUN_BUDGET_MINUTES` | `285` | How long the process may run before it saves and stops itself. |
 | `ODYSSEY_STATE_FILE` | `state/odyssey_state.json` | Where profiles are saved. |
 | `ROUTINE_CHANNEL_ID` | `#event-announcements` | Channel for the daily question and the Wednesday nudge. Never `#general`. |
-| `SERVER_JAVA_HOST` / `SERVER_JAVA_PORT` | `odysseyland.aternos.me` / `25565` | Used by `/start` and `/server`. |
+| `SERVER_JAVA_HOST` / `SERVER_JAVA_PORT` | `odysseyland.aternos.me` / `56870` | Used by `/start` and `/server`. |
 | `SERVER_BEDROCK_HOST` / `SERVER_BEDROCK_PORT` | `odysseyland.aternos.me` / `19132` | Shown for Bedrock players. |
 | `SERVER_PANEL_URL` | `https://aternos.org/go/` | Link in `/start`. |
 | `ATERNOS_SESSION` | — | Cookie from a signed-in browser. Presses Start when a newcomer arrives. Unset = that feature stays quiet. |
@@ -25,6 +25,8 @@ All 18 commands are hybrid, so `/fish` and `!fish` both work.
 | `ATERNOS_COOLDOWN_SECONDS` | `300` | Minimum gap between start requests. |
 | `BOOT_NOTICE_CHANNEL_ID` | `#event-announcements` | Where "bringing the server up" is posted. |
 | `NEWCOMER_POLL_MINUTES` | `2` | How often to look for a rising member count or a spent invite. |
+| `MC_CHAT_CHANNEL_ID` | `#mc-chat` | The channel whose topic carries the live status line. |
+| `STATUS_WATCH_MINUTES` | `5` | How often to ping the SMP, rewrite that topic, and notice it coming up. |
 | `ENABLE_MEMBER_INTENT` | unset | Set `1` **only after** enabling the Server Members intent in the Discord developer portal. Gets exact joins and invite attribution; the poll above covers it without. |
 
 ## Routines
@@ -51,6 +53,11 @@ with a 30-minute one.
 - `odyssey_aternos.py` presses the panel's own Start button (no API exists) when
   somebody new arrives, and `#event-announcements` gets a "give it a minute"
   line. `/wake` does the same on demand, with a five-minute cooldown.
+- `server_watch` (in `odyssey_bot.py`) reads the live status every five minutes,
+  keeps `#mc-chat`'s topic carrying the line it saw, and posts one "the server's
+  up" note on the tick it comes back. `odyssey_community.py` owns the ping and
+  knows to ignore the "this server is offline" placeholder Aternos answers with
+  while the world is asleep.
 - Arrivals are detected by polling `member_count` and the invite use counts, so
   the privileged members intent is optional. `odyssey_growth.py` turns the same
   invite diff into `/recruits`.
