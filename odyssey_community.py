@@ -6,6 +6,7 @@ running that file as __main__ cannot pull in a second copy of the bot.
 
 import asyncio
 import json
+import re
 import socket
 import struct
 
@@ -108,10 +109,11 @@ def _read_varint(sock):
     raise OSError("malformed varint")
 
 
-def java_status(host, port=25565, timeout=4.0):
+def _status_json(host, port=25565, timeout=4.0):
     """Server-list ping, hand-rolled so no extra dependency is needed.
 
-    Returns (online, detail). Any socket problem simply means "offline".
+    Returns the decoded status object, or None when nothing answered - any
+    socket problem, timeout or unreadable payload is just a None here.
     """
     try:
         with socket.create_connection((host, port), timeout=timeout) as sock:
@@ -139,6 +141,34 @@ def java_status(host, port=25565, timeout=4.0):
                 payload += chunk
             data = json.loads(payload.decode("utf-8", "replace") or "{}")
     except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _is_placeholder(data):
+    """True when Aternos answered for a world that is not running.
+
+    Port 56870 is held open by Aternos' own proxy, which replies to the ping
+    whether or not the server is up: protocol -1, version name "§c● Offline",
+    description "This server is offline." A running Paper server reports its own
+    protocol (767), so without this check a sleeping world reads as a live one
+    with nobody on it - which is exactly the wrong thing to print anywhere.
+    """
+    version = data.get("version") or {}
+    if str(version.get("protocol")) == "-1":
+        return True
+    name = re.sub(r"§.", "", str(version.get("name") or "")).lower()
+    return "offline" in name
+
+
+def java_status(host, port=25565, timeout=4.0):
+    """Online flag plus a one-line detail, for the chat commands.
+
+    Returns (online, detail). A closed port, or the host's own "this server is
+    offline" placeholder, both simply mean "not up".
+    """
+    data = _status_json(host, port, timeout)
+    if data is None or _is_placeholder(data):
         return False, ""
 
     version = (data.get("version") or {}).get("name") or "responding"
@@ -147,6 +177,24 @@ def java_status(host, port=25565, timeout=4.0):
     if players.get("online") is not None and players.get("max"):
         detail += f", {players['online']}/{players['max']} players"
     return True, detail
+
+
+def status_snapshot(host, port=25565, timeout=4.0):
+    """The same ping as numbers, for text that has to stay true while it is shown.
+
+    "online: False" here means "not up just now": either nothing answered or the
+    host answered with its own offline placeholder.
+    """
+    data = _status_json(host, port, timeout)
+    if data is None or _is_placeholder(data):
+        return {"online": False, "version": "", "players": 0, "max": 0}
+    players = data.get("players") or {}
+    return {
+        "online": True,
+        "version": str((data.get("version") or {}).get("name") or ""),
+        "players": int(players.get("online") or 0),
+        "max": int(players.get("max") or 0),
+    }
 
 
 def register(bot, cfg):
