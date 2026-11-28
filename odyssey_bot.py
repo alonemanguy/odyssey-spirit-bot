@@ -23,6 +23,7 @@ from odyssey_data import (
 )
 
 import odyssey_aternos
+import odyssey_community
 import odyssey_growth
 
 # ===== GUILD =====
@@ -237,7 +238,7 @@ def start_background_loops():
     later loops were never started at all.
     """
     for loop in (ocean_events, update_weather, random_events, bump_reminders,
-                 routines, newcomer_watch, autosave):
+                 routines, newcomer_watch, server_watch, autosave):
         if not loop.is_running():
             loop.start()
 
@@ -443,6 +444,15 @@ async def bump_reminders():
 BOOT_NOTICE_CHANNEL_ID = int(os.environ.get("BOOT_NOTICE_CHANNEL_ID", str(ROUTINE_CHANNEL_ID)))
 NEWCOMER_POLL_MINUTES = int(os.environ.get("NEWCOMER_POLL_MINUTES", "2"))
 
+# ===== STATUS WATCH =====
+# Aternos stops the box once it has been empty for a few minutes, so any "we're
+# up" note is stale within the hour. This loop reads the live status instead of
+# guessing, and keeps #mc-chat's topic carrying the line it saw. #smp-info is
+# left alone on purpose: its topic lists the addresses and how to bring the
+# server up, which is true whether it is awake or asleep.
+MC_CHAT_CHANNEL_ID = int(os.environ.get("MC_CHAT_CHANNEL_ID", "1486562209017630791"))
+STATUS_WATCH_MINUTES = int(os.environ.get("STATUS_WATCH_MINUTES", "5"))
+
 
 async def wake_for_newcomer(who=None):
     """Start the SMP, and report it where people will see it."""
@@ -512,6 +522,66 @@ async def newcomer_watch():
     if grew or arrivals:
         print(f"Arrival detected (members {previous} -> {count})")
         await wake_for_newcomer()
+
+
+def status_topic(snapshot):
+    """The #mc-chat topic, worded so it is true at the moment it is written."""
+    where = (f"Java {SERVER_JAVA_HOST}:{SERVER_JAVA_PORT} · "
+             f"Bedrock port {SERVER_BEDROCK_PORT}")
+    if snapshot["online"]:
+        aboard = (f"{snapshot['players']}/{snapshot['max']} aboard"
+                  if snapshot["max"] else "open")
+        return f"Open now - {aboard} · {where}"
+    return f"Sleeping - the next join wakes it · {where}"
+
+
+@tasks.loop(minutes=STATUS_WATCH_MINUTES)
+async def server_watch():
+    """Keep the status line, and the one "we're on" note, in step with reality.
+
+    The first tick only records what it saw: the process restarts every five
+    hours, and without that baseline each restart would announce a server that
+    has been up for hours. After that, waking up is worth one message and going
+    back to sleep is worth a quiet topic edit - nobody needs a ping to hear that
+    a free host did the thing free hosts do.
+    """
+    snapshot = await asyncio.to_thread(
+        odyssey_community.status_snapshot, SERVER_JAVA_HOST, SERVER_JAVA_PORT)
+
+    previous = state_meta.get("server_online")
+    if previous != snapshot["online"]:
+        state_meta["server_online"] = snapshot["online"]
+        save_state()
+
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        return
+
+    channel = guild.get_channel(MC_CHAT_CHANNEL_ID)
+    topic = status_topic(snapshot)
+    if channel is not None and channel.topic != topic:
+        try:
+            await channel.edit(topic=topic, reason="Status watch")
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"Status watch could not edit the topic: {exc}")
+
+    if previous is None or snapshot["online"] == previous:
+        return
+    if not snapshot["online"]:
+        print("Status watch: the server went back to sleep")
+        return
+
+    notice = guild.get_channel(BOOT_NOTICE_CHANNEL_ID)
+    if notice is None:
+        return
+    try:
+        await notice.send(
+            "**The server's up.** Java `%s:%s` · Bedrock `%s` port `%s`.\n"
+            "It goes back to sleep when the last person leaves - this is the window."
+            % (SERVER_JAVA_HOST, SERVER_JAVA_PORT, SERVER_BEDROCK_HOST,
+               SERVER_BEDROCK_PORT))
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"Status watch could not post the notice: {exc}")
 
 
 @bot.event
@@ -1119,8 +1189,6 @@ async def guide(ctx):
 
 
 # ===== WIRING =====
-import odyssey_community
-
 odyssey_community.register(bot, {
     "name": SERVER_NAME,
     "java_host": SERVER_JAVA_HOST,
